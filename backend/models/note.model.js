@@ -8,6 +8,8 @@ const noteSchema = new Schema({
   isPinned: { type: Boolean, default: false },
   userId: { type: String, required: true },
   createdOn: { type: Date, default: new Date().getTime() },
+  shared: { type: Boolean, default: false }, // New field for shared status
+  sharedWith: { type: [String], default: [] }, // New field for user IDs or emails with whom the note is shared
 });
 
 module.exports = mongoose.model("Note", noteSchema);

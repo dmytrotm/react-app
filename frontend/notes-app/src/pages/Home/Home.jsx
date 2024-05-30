@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Navbar from "../../components/Navbar/Navbar";
 import NoteCard from "../../components/Cards/NoteCard";
-import { MdAdd } from "react-icons/md";
+import { MdAdd, MdClose } from "react-icons/md";
 import Modal from "react-modal";
 import AddEditNotes from "./AddEditNotes";
 import Toast from "../../components/ToastMessage/Toast";
@@ -13,24 +13,26 @@ import EmptyCard from "../../components/EmptyCard/EmptyCard";
 
 const Home = () => {
   const [allNotes, setAllNotes] = useState([]);
-
   const [isSearch, setIsSearch] = useState(false);
-
   const [userInfo, setUserInfo] = useState(null);
-
-  const navigate = useNavigate();
-
+  const [error, setError] = useState(null);
   const [openAddEditModal, setOpenAddEditModal] = useState({
     isShown: false,
     type: "add",
     data: null,
   });
-
   const [showToastMsg, setShowToastMsg] = useState({
     isShown: false,
     message: "",
     type: "add",
   });
+  const [shareModal, setShareModal] = useState({
+    isShown: false,
+    noteId: null,
+  });
+  const [shareUserId, setShareUserId] = useState("");
+
+  const navigate = useNavigate();
 
   const handleEdit = (noteDetails) => {
     setOpenAddEditModal({ isShown: true, data: noteDetails, type: "edit" });
@@ -51,7 +53,6 @@ const Home = () => {
     });
   };
 
-  // Get all notes
   const getAllNotes = async () => {
     try {
       const response = await axiosInstance.get("/get-all-notes");
@@ -64,7 +65,6 @@ const Home = () => {
     }
   };
 
-  // Delete Note
   const deleteNote = async (data) => {
     const noteId = data._id;
     try {
@@ -79,7 +79,6 @@ const Home = () => {
     }
   };
 
-  // Get User Info
   const getUserInfo = async () => {
     try {
       const response = await axiosInstance.get("/get-user");
@@ -94,7 +93,6 @@ const Home = () => {
     }
   };
 
-  // Search for a Note
   const onSearchNote = async (query) => {
     try {
       const response = await axiosInstance.get("/search-notes", {
@@ -135,6 +133,42 @@ const Home = () => {
     getAllNotes();
   };
 
+  const handleShareNote = (noteId) => {
+    setShareModal({ isShown: true, noteId });
+  };
+
+  const shareNote = async () => {
+    try {
+      const response = await axiosInstance.post("/share-note", {
+        noteId: shareModal.noteId,
+        userId: shareUserId,
+      });
+
+      if (response.data && !response.data.error) {
+        showToastMessage("Note Shared Successfully", "share");
+
+        // Update the shared note in the state
+        setAllNotes((prevNotes) =>
+          prevNotes.map((note) =>
+            note._id === shareModal.noteId
+              ? {
+                  ...note,
+                  shared: true,
+                  sharedWith: [...note.sharedWith, shareUserId],
+                  tags: [...note.tags, `SharedBy${userInfo.fullName}`],
+                }
+              : note
+          )
+        );
+
+        setShareModal({ isShown: false, noteId: null });
+        setShareUserId("");
+      }
+    } catch (error) {
+      console.log("An unexpected error occurred. Please try again.");
+    }
+  };
+
   useEffect(() => {
     getAllNotes();
     getUserInfo();
@@ -168,6 +202,9 @@ const Home = () => {
                   onEdit={() => handleEdit(item)}
                   onDelete={() => deleteNote(item)}
                   onPinNote={() => updateIsPinned(item)}
+                  onShare={() => handleShareNote(item._id)}
+                  userInfo={userInfo} // Pass userInfo as a prop
+                  noteUserId={item.userId} // Pass note.userId as a prop
                 />
               );
             })}
@@ -196,13 +233,15 @@ const Home = () => {
 
       <Modal
         isOpen={openAddEditModal.isShown}
-        onRequestClose={() => {}}
+        onRequestClose={() =>
+          setOpenAddEditModal({ isShown: false, type: "add", data: null })
+        }
         style={{
           overlay: {
             backgroundColor: "rgba(0,0,0,0.2)",
           },
         }}
-        contentLabel="Example Modal"
+        contentLabel="Add/Edit Note"
         className="w-[40%] max-h-3/4 bg-white rounded-md mx-auto mt-14 p-5 overflow-scroll"
       >
         <AddEditNotes
@@ -216,6 +255,41 @@ const Home = () => {
         />
       </Modal>
 
+      <Modal
+        isOpen={shareModal.isShown}
+        onRequestClose={() => setShareModal({ isShown: false, noteId: null })}
+        style={{
+          overlay: {
+            backgroundColor: "rgba(0,0,0,0.2)",
+          },
+        }}
+        contentLabel="Share Note"
+        className="w-[40%] max-h-3/4 bg-white rounded-md mx-auto mt-14 p-5 overflow-scroll"
+      >
+        <div className="relative">
+          <button
+            className="w-10 h-10 rounded-full flex items-center justify-center absolute -top-3 -right-3 hover:bg-slate-50"
+            onClick={() => setShareModal({ isShown: false, noteId: null })}
+          >
+            <MdClose className="text-xl text-slate-400" />
+          </button>
+
+          <h2 className="text-lg font-medium mb-4">Share Note</h2>
+          <input
+            type="text"
+            className="w-full border p-2 rounded"
+            placeholder="Enter email"
+            value={shareUserId}
+            onChange={(e) => setShareUserId(e.target.value)}
+          />
+          <button
+            className="btn-primary font-medium mt-5 p-3"
+            onClick={shareNote}
+          >
+            Share
+          </button>
+        </div>
+      </Modal>
       <Toast
         isShown={showToastMsg.isShown}
         message={showToastMsg.message}

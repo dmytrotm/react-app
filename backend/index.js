@@ -241,7 +241,15 @@ app.get("/get-all-notes", authenticateToken, async (req, res) => {
   const { user } = req.user;
 
   try {
-    const notes = await Note.find({ userId: user._id }).sort({ isPinned: -1 });
+    const pinnedNotes = await Note.find({ userId: user._id, isPinned: true });
+    const sharedNotes = await Note.find({
+      sharedWith: { $in: [user.email] },
+    });
+    const notPinnedNotes = await Note.find({
+      userId: user._id,
+      isPinned: false,
+    });
+    const notes = [...pinnedNotes, ...sharedNotes, ...notPinnedNotes];
 
     return res.json({
       error: false,
@@ -262,13 +270,24 @@ app.delete("/delete-note/:noteId", authenticateToken, async (req, res) => {
   const { user } = req.user;
 
   try {
-    const note = await Note.findOne({ _id: noteId, userId: user._id });
+    const note = await Note.findOne({ _id: noteId });
 
     if (!note) {
       return res.status(404).json({ error: true, message: "Note not found" });
     }
 
-    await Note.deleteOne({ _id: noteId, userId: user._id });
+    if (note.userId.toString() === user._id.toString()) {
+      // User is the owner, delete the note
+      await Note.deleteOne({ _id: noteId });
+    } else if (note.sharedWith.includes(user.email)) {
+      // User is not the owner but the note is shared with them
+      // Remove the user's email from the sharedWith array
+      note.sharedWith = note.sharedWith.filter((email) => email !== user.email);
+      await note.save();
+    } else {
+      // User is neither the owner nor a shared user
+      return res.status(403).json({ error: true, message: "Unauthorized" });
+    }
 
     return res.json({
       error: false,
@@ -295,7 +314,7 @@ app.get("/search-notes", authenticateToken, async (req, res) => {
 
   try {
     const matchingNotes = await Note.find({
-      userId: user._id,
+      $or: [{ userId: user._id }, { sharedWith: { $in: [user.email] } }],
       $or: [
         { title: { $regex: new RegExp(query, "i") } }, // Case-insensitive title match
         { content: { $regex: new RegExp(query, "i") } }, // Case-insensitive content match
@@ -306,6 +325,42 @@ app.get("/search-notes", authenticateToken, async (req, res) => {
       error: false,
       notes: matchingNotes,
       message: "Notes matching the search query retrieved successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: true,
+      message: "Internal Server Error",
+    });
+  }
+});
+
+// Share Note
+app.post("/share-note", authenticateToken, async (req, res) => {
+  const { noteId, userId } = req.body;
+  const { user } = req.user;
+
+  try {
+    const note = await Note.findOne({ _id: noteId, userId: user._id });
+    const guest = await User.findOne({ email: userId });
+
+    if (!note) {
+      return res.status(404).json({ error: true, message: "Note not found" });
+    }
+
+    if (!guest) {
+      return res.status(404).json({ error: true, message: "User not found" });
+    }
+
+    note.shared = true;
+    note.sharedWith.push(userId); // Add the user ID to the sharedWith array
+    note.tags.push(`SharedBy${user.fullName}`);
+
+    await note.save();
+
+    return res.json({
+      error: false,
+      note,
+      message: "Note shared successfully",
     });
   } catch (error) {
     return res.status(500).json({
